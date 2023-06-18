@@ -18,7 +18,7 @@ builder.Services.AddSwaggerGen();
 // Inject services into controllers
 
 // Storage Controller
-builder.Services.AddTransient<IStreamFileService, StreamFileService>();
+builder.Services.AddTransient<IFileService, FileService>();
 builder.Services.AddDbContext<DataContext>(options =>
     options.UseSqlServer(_configuration.GetConnectionString("DefaultConnection"), b => b.MigrationsAssembly("UserMicroService")));
 
@@ -35,6 +35,16 @@ builder.Services.AddCors(p => p.AddPolicy("corsapp", builder =>
     .AllowAnyMethod()
     .AllowAnyHeader();
 }));
+
+builder.Services.Configure<KestrelServerOptions>(options =>
+{
+    options.AllowSynchronousIO = true;
+});
+
+builder.Services.Configure<IISServerOptions>(options =>
+{
+    options.AllowSynchronousIO = true;
+});
 
 
 var app = builder.Build();

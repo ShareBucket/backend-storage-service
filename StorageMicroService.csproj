@@ -7,12 +7,19 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="ShareBucket.JwtMiddlewareClient" Version="5.0.0" />
+    <Compile Remove="UploadedFiles\1\cy\**" />
+    <Content Remove="UploadedFiles\1\cy\**" />
+    <EmbeddedResource Remove="UploadedFiles\1\cy\**" />
+    <None Remove="UploadedFiles\1\cy\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ShareBucket.JwtMiddlewareClient" Version="6.0.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.2.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="UploadedFiles\" />
+    <Folder Include="UploadedFiles\1\" />
   </ItemGroup>
 
 </Project>
