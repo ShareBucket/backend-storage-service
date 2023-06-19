@@ -12,5 +12,6 @@ namespace StorageMicroService.Models.Services.Application.Storage
         public bool CreateMetadataOnDb(Metadata metadata);
         public bool VerifyMemoryAreaAccess(int idMemoryArea, User user);
         public bool DeleteFileAsync(string fileName, string filePath, int idMemoryArea);
+        public bool DoesMetadataExists(string filepath, string fileName, int idMemoryArea);
     }
 }

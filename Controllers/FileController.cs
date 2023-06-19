@@ -84,13 +84,15 @@ namespace StorageMicroService.Controllers
                 {
                     filepath = string.Empty;
                 }
-                if (!filepath.EndsWith('/'))
-                {
-                    filepath += '/';
-                }
                 if (filepath.EndsWith("\\"))
                 {
-                    filepath = filepath.Substring(0, filepath.Length - 2) + "/";
+                    filepath = filepath.Substring(0, filepath.Length - 2);
+                }
+
+                // Verify if the metadata already exists
+                if (_fileService.DoesMetadataExists(filepath, fileName, idMemoryArea))
+                {
+                    return BadRequest("File already exists");
                 }
 
                 // Check if both filepath and fileName exist
@@ -100,7 +102,10 @@ namespace StorageMicroService.Controllers
                     section != null && 
                     await _fileService.UploadFileAsync(section, idMemoryArea, filepath))
                 {
-
+                    if (!filepath.EndsWith("/"))
+                    {
+                        filepath += "/";
+                    }
                     // Create the metadata
                     var metadata = new Metadata
                     {
@@ -153,13 +158,9 @@ namespace StorageMicroService.Controllers
             {
                 filePath = string.Empty;
             }
-            if (!filePath.EndsWith('/'))
-            {
-                filePath += '/';
-            }
             if (filePath.EndsWith("\\"))
             {
-                filePath = filePath.Substring(0, filePath.Length - 2) + "/";
+                filePath = filePath.Substring(0, filePath.Length - 2);
             }
 
             // Verify if the memoryArea exists and the user has access to it
@@ -171,7 +172,7 @@ namespace StorageMicroService.Controllers
             {
                 return Unauthorized();
             }
-
+            
             string localFilePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, $"UploadedFiles/{idMemoryArea}", filePath));
 
             if (!Directory.Exists(localFilePath))
@@ -217,7 +218,7 @@ namespace StorageMicroService.Controllers
         {
             // Read the memory area id from the request header
             Request.Headers.TryGetValue("idMemoryArea", out var idMemoryAreaStr);
-            if (!int.TryParse(idMemoryAreaStr, out var idMemoryArea))
+            if(!int.TryParse(idMemoryAreaStr, out var idMemoryArea))
             {
                 return BadRequest("idMemoryArea is not a number");
             }
@@ -225,13 +226,9 @@ namespace StorageMicroService.Controllers
             {
                 filePath = string.Empty;
             }
-            if (!filePath.EndsWith('/'))
-            {
-                filePath += '/';
-            }
             if (filePath.EndsWith("\\"))
             {
-                filePath = filePath.Substring(0, filePath.Length - 2) + "/";
+                filePath = filePath.Substring(0, filePath.Length - 2);
             }
             
             // Verify if the memoryArea exists and the user has access to it
@@ -262,17 +259,17 @@ namespace StorageMicroService.Controllers
             {
                 if (_fileService.DeleteFileAsync(fileName, filePath, idMemoryArea))
                 {
-                    return Ok("Metadata Eliminato correttamente");
+                    return Ok("Metadata deleted");
                 }
                 else
                 {
-                    return BadRequest("Errore durante l'eliminazione del file");
+                    return BadRequest("Error during deletion");
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine(ex.Message);
-                return BadRequest("Errore durante l'eliminazione del file");
+                return BadRequest("Error during deletion");
 
             }
 

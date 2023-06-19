@@ -37,53 +37,62 @@ public class FileService : IFileService
     
     public async Task<bool> UploadFileAsync(MultipartSection section, int idMemoryArea, string filepath)
     {
-            var hasContentDispositionHeader = ContentDispositionHeaderValue.TryParse(
-                section.ContentDisposition, out var contentDisposition
-            );
-            if (hasContentDispositionHeader && contentDisposition != null)
+        var hasContentDispositionHeader = ContentDispositionHeaderValue.TryParse(
+            section.ContentDisposition, out var contentDisposition
+        );
+        if (hasContentDispositionHeader && contentDisposition != null)
+        {
+            if (contentDisposition.DispositionType.Equals("form-data") &&
+            (!string.IsNullOrEmpty(contentDisposition.FileName.Value) ||
+            !string.IsNullOrEmpty(contentDisposition.FileNameStar.Value)))
             {
-                if (contentDisposition.DispositionType.Equals("form-data") &&
-                (!string.IsNullOrEmpty(contentDisposition.FileName.Value) ||
-                !string.IsNullOrEmpty(contentDisposition.FileNameStar.Value)))
+                long fileDimension = section.Body.Length;
+                
+                string filePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, $"UploadedFiles/{idMemoryArea}", filepath));
+
+                if (!Directory.Exists(filePath))
                 {
-                    long fileDimension = section.Body.Length;
-
-                    string filePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, $"UploadedFiles/{idMemoryArea}", filepath));
-
-                    if (!Directory.Exists(filePath))
-                    {
-                        Directory.CreateDirectory(filePath);
-                    }
+                    Directory.CreateDirectory(filePath);
+                }
                     
-                    using (var fsIn = new FileStream(Path.Combine(filePath, contentDisposition.FileName.Value + ".enc"), FileMode.Create))
+                using (var fsIn = new FileStream(Path.Combine(filePath, contentDisposition.FileName.Value + ".enc"), FileMode.Create))
+                {
+                    // time diagnostic
+                    var watch = Stopwatch.StartNew();
+                    Debug.WriteLine("Start encryption");
+
+                    var key = getKeyFromMemoryArea(idMemoryArea);
+
+                    var salt = AesEncryptionService.RandomByteArray(16);
+                    await fsIn.WriteAsync(salt, 0, salt.Length);
+                    try
                     {
-                        // time diagnostic
-                        var watch = Stopwatch.StartNew();
-                        Debug.WriteLine("Start encryption");
-
-                        var salt = AesEncryptionService.RandomByteArray(16);
-                        await fsIn.WriteAsync(salt, 0, salt.Length);
-                        try
-                        {
-                            await AesEncryptionService.EncryptStreamAsync(section.Body, fsIn, new byte[] { 5, 4, 3, 2, 1, 2, 1, 6, 3, 6 }, salt);
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine(ex.Message);
-                            return false;
-                        }
-
-                        // time diagnostic
-                        watch.Stop();
-                        var elapsedMs = watch.ElapsedMilliseconds;
-                        var elapsedDateTime = watch.Elapsed;
-                        Debug.WriteLine($"Elapsed time: {elapsedMs} ms");
-                        Debug.WriteLine($"Elapsed time: {elapsedDateTime}");
+                        await AesEncryptionService.EncryptStreamAsync(section.Body, fsIn, key, salt);
                     }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine(ex.Message);
+                        return false;
+                    }
+
+                    // time diagnostic
+                    watch.Stop();
+                    var elapsedMs = watch.ElapsedMilliseconds;
+                    var elapsedDateTime = watch.Elapsed;
+                    Debug.WriteLine($"Elapsed time: {elapsedMs} ms");
+                    Debug.WriteLine($"Elapsed time: {elapsedDateTime}");
                 }
             }
+        }
         return true;
     }
+
+    private byte[] getKeyFromMemoryArea(int idMemoryArea)
+    {
+        var memoryArea = _context.MemoryAreas.Find(idMemoryArea);
+        return memoryArea!.EncryptionKey;
+    }
+
     public async Task<bool> DownloadFileAsync(string filepath, Stream body, int idMemoryArea)
     {
 
@@ -94,11 +103,13 @@ public class FileService : IFileService
             Debug.WriteLine("Directory not found");
             return false;
         }
-
-        byte[] salt = new byte[16];
         
         using (var fsIn = new FileStream(Path.Combine(filePath, filepath + ".enc"), FileMode.Open, FileAccess.Read))
         {
+
+            var key = getKeyFromMemoryArea(idMemoryArea);
+            
+            byte[] salt = new byte[16];
             await fsIn.ReadAsync(salt, 0, salt.Length);
             
             // time diagnostic
@@ -107,7 +118,7 @@ public class FileService : IFileService
 
             try
             {
-                await AesEncryptionService.DecryptStreamAsync(fsIn, body, new byte[] { 5, 4, 3, 2, 1, 2, 1, 6, 3, 6 }, salt);
+                await AesEncryptionService.DecryptStreamAsync(fsIn, body, key, salt);
                 body.Position = 0;
             }
             catch (Exception ex)
@@ -135,6 +146,7 @@ public class FileService : IFileService
 
         try
         {
+            if (!filePath.EndsWith("/")) filePath += "/";
             var metadata = _context.Metadatas.FirstOrDefault(x => x.Path == filePath && x.Filename == fileName && x.MemoryAreaId == idMemoryArea);
             if (metadata != null)
             {
@@ -193,5 +205,11 @@ public class FileService : IFileService
         {
             return false;
         }
+    }
+
+    public bool DoesMetadataExists(string filePath, string fileName, int idMemoryArea)
+    {
+        if (!filePath.EndsWith("/")) filePath += "/";
+        return _context.Metadatas.FirstOrDefault(x => x.Path == filePath && x.Filename == fileName && x.MemoryAreaId == idMemoryArea) != null;
     }
 }

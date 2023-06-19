@@ -36,16 +36,20 @@ namespace StorageMicroService.Controllers
             }
 
             var userEntry = _context.Entry(user);
-            await userEntry.Collection(u => u.MemoryAreasPartecipated).LoadAsync();
-
+            await userEntry.Collection(u => u.MemoryAreasPartecipated)
+                .Query()
+                .Include(m => m.UserOwner)
+                .LoadAsync();
             
+
             return Ok(
                 user.MemoryAreasPartecipated.Select(ma => new MemoryAreaDto()
                 {
-                    Id = ma.Id,
+                    IdAreaMemoria = ma.Id,
                     Name = ma.Name,
                     MaxGB = ma.MaxGB,
-                    CreationDate = ma.CreationDate
+                    CreationDate = ma.CreationDate,
+                    UserOwner = $"{ma.UserOwner.FirstName} {ma.UserOwner.LastName}"
                 })
             );
         }
@@ -81,18 +85,23 @@ namespace StorageMicroService.Controllers
 
             string localFilePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, $"UploadedFiles/{idMemoryArea}"));
 
+            if (!Directory.Exists(localFilePath))
+            {
+                Directory.CreateDirectory(localFilePath);
+            }
+
             localFilePath = (filePath == "/") ? localFilePath : Path.Combine(localFilePath, filePath);
 
             if (!Directory.Exists(localFilePath))
             {
-                return NotFound();
+                return NotFound("The specified path does not exist");
             }
 
             // Get the memory area with the given id 
             var memoryArea = _context.MemoryAreas.Find(idMemoryArea);
             if (memoryArea == null)
             {
-                return NotFound();
+                return NotFound("The specified memory area does not exist");
             }
 
             // Get the list of files and folders in the memory area
@@ -119,7 +128,40 @@ namespace StorageMicroService.Controllers
             };
             return Ok(result);
         }
+        [HttpPost]
+        [Route("CreateFolder")]
+        public IActionResult CreateFolder(int idMemoryArea, string filePath)
+        {
+            // Test if user has access to the MemoryArea provided
+            if (Request.HttpContext.Items["User"] is not User user ||
+                !_context.MemoryAreas.Any(m => m.Id == idMemoryArea && m.Users.Contains(user)))
+            {
+                return Unauthorized();
+            }
+            if (string.IsNullOrEmpty(filePath))
+            {
+                return BadRequest("Filepath must be provided");
+            }
+            if (!filePath.EndsWith('/'))
+            {
+                return BadRequest("Filepath must end with /");
+            }
 
+            string localFilePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, $"UploadedFiles/{idMemoryArea}", filePath));
+
+
+            if (!Directory.Exists(localFilePath))
+            {
+                Directory.CreateDirectory(localFilePath);
+                return Ok("Directory created.");
+            }
+            else
+            {
+                return BadRequest("Directory already exists.");
+            }
+            
+        }
+        
         [HttpDelete]
         [Route("DeleteFolder")]
         public IActionResult DeleteFolder(int idMemoryArea, string filePath)
@@ -162,7 +204,7 @@ namespace StorageMicroService.Controllers
             memoryArea.Metadatas.Where(m => m.Path.StartsWith(filePath)).ToList().ForEach(m => _context.Metadatas.Remove(m));
             _context.SaveChanges();
 
-            return Ok();
+            return Ok("Folder deleted");
         }
 
 
@@ -192,11 +234,123 @@ namespace StorageMicroService.Controllers
             _context.MemoryAreas.Add(memoryArea);
             _context.SaveChanges();
 
-            return Ok();
+            return Ok("Memory area created");
         }
 
-        
+        [HttpPost]
+        [Route("GrantAccessMemoryArea")]
+        public IActionResult GrantAccessMemoryArea(int idMemoryArea, string email)
+        {
+            // Verify if the user has access to the memory area and is the owner (only the owner can give access to the memory area)
+            if (Request.HttpContext.Items["User"] is not User user ||
+                !_context.MemoryAreas.Any(m => m.Id == idMemoryArea && m.UserOwner == user))
+            {
+                return Unauthorized("You are not the owner of the memory area");
+            }
 
-        
+            // Verify if the user with the given email exists
+            var userToGiveAccess = _context.Users.Where(u => u.Email == email).FirstOrDefault();
+            if (userToGiveAccess == null)
+            {
+                return NotFound("User not found");
+            }
+
+            // Verify if the user is a friend
+            var userEntry = _context.Entry(user);
+            userEntry.Collection(u => u.Friendships).Load();
+            if (!user.Friendships.Any(f => f.User == userToGiveAccess || f.Friend == userToGiveAccess))
+            {
+                return BadRequest("The user is not a friend");
+            }
+
+
+
+            // Verify if the user already has access to the memory area
+            var memoryArea = _context.MemoryAreas.Find(idMemoryArea);
+            // Load the list of users that have access to the memory area
+            var memAreaEntry = _context.Entry(memoryArea);
+            memAreaEntry.Collection(m => m.Users).Load();
+            
+            if (memoryArea.Users.Contains(userToGiveAccess))
+            {
+                return BadRequest("User already has access to the memory area");
+            }
+
+            // Add the user to the memory area
+            memoryArea.Users.Add(userToGiveAccess);
+            _context.SaveChanges();
+
+            return Ok("User added to the memory area");
+        }
+
+        [HttpPost]
+        [Route("RevokeAccessMemoryArea")]
+        public IActionResult RevokeAccessMemoryArea(int idMemoryArea, string email)
+        {
+            // Verify if the user has access to the memory area and is the owner (only the owner can remove access to the memory area)
+            if (Request.HttpContext.Items["User"] is not User user ||
+                !_context.MemoryAreas.Any(m => m.Id == idMemoryArea && m.UserOwner == user))
+            {
+                return Unauthorized("You are not the owner of the memory area");
+            }
+
+            // Verify if the user with the given email exists
+            var userToRemoveAccess = _context.Users.Where(u => u.Email == email).FirstOrDefault();
+            if (userToRemoveAccess == null)
+            {
+                return NotFound("User not found");
+            }
+
+            // Verify if the user already has access to the memory area
+            var memoryArea = _context.MemoryAreas.Find(idMemoryArea);
+            // Load the users that have access to the memory area
+            var memAreaEntry = _context.Entry(memoryArea);
+            memAreaEntry.Collection(m => m.Users).Load();
+            
+            if (!memoryArea.Users.Contains(userToRemoveAccess))
+            {
+                return BadRequest("User already hasn't access to the memory area");
+            }
+
+            // Remove the user from the memory area
+            memoryArea.Users.Remove(userToRemoveAccess);
+            _context.SaveChanges();
+
+            return Ok("User removed from memory area");
+        }
+
+        [HttpDelete]
+        [Route("DeleteMemoryArea")]
+        public IActionResult DeleteMemoryArea(int idMemoryArea)
+        {
+            // Verify if the user has access to the memory area and is the owner (only the owner can delete the memory area)
+            if (Request.HttpContext.Items["User"] is not User user ||
+                !_context.MemoryAreas.Any(m => m.Id == idMemoryArea && m.UserOwner == user))
+            {
+                return Unauthorized("You are not the owner of the memory area or you don't have access to it");
+            }
+
+            // Deleting a memory area means deleting all the files and metadatas associated with it
+            var memoryArea = _context.MemoryAreas.Find(idMemoryArea);
+            // Load the metadatas of the memory area
+            var memAreaEntry = _context.Entry(memoryArea);
+            memAreaEntry.Collection(m => m.Metadatas).Load();
+
+            // Delete all the metadatas
+            _context.Metadatas.RemoveRange(memoryArea.Metadatas);
+
+            // Delete also the folder and files locally
+            string localFilePath = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, $"UploadedFiles/{idMemoryArea}"));
+            Directory.Delete(localFilePath, true);
+
+            // Delete the memory area
+            _context.MemoryAreas.Remove(memoryArea);
+            _context.SaveChanges();
+
+            return Ok("Memory area deleted");
+        }
+
+
+
     }
 }
